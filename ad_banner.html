@@ -1,0 +1,285 @@
+
+    <script>
+      var
+        ua = navigator.userAgent,
+        browser = /Edge\/\d+/.test(ua) ? 'ed' : /MSIE 9/.test(ua) ? 'ie9' : /MSIE 10/.test(ua) ? 'ie10' : /MSIE 11/.test(ua) ? 'ie11' : /MSIE\s\d/.test(ua) ? 'ie?' : /rv\:11/.test(ua) ? 'ie11' : /Firefox\W\d/.test(ua) ? 'ff' : /Chrome\W\d/.test(ua) ? 'gc' : /Chromium\W\d/.test(ua) ? 'oc' : /\bSafari\W\d/.test(ua) ? 'sa' : /\bOpera\W\d/.test(ua) ? 'op' : /\bOPR\W\d/i.test(ua) ? 'op' : typeof MSPointerEvent !== 'undefined' ? 'ie?' : '',
+        os = /Windows NT 10/.test(ua) ? "win10" : /Windows NT 6\.0/.test(ua) ? "winvista" : /Windows NT 6\.1/.test(ua) ? "win7" : /Windows NT 6\.\d/.test(ua) ? "win8" : /Windows NT 5\.1/.test(ua) ? "winxp" : /Windows NT [1-5]\./.test(ua) ? "winnt" : /Mac/.test(ua) ? "mac" : /Linux/.test(ua) ? "linux" : /X11/.test(ua) ? "nix" : "",
+        mobile = /IEMobile|Windows Phone|Lumia/i.test(ua) ? 'w' : /iPhone|iP[oa]d/.test(ua) ? 'i' : /Android/.test(ua) ? 'a' : /BlackBerry|PlayBook|BB10/.test(ua) ? 'b' : /Mobile Safari/.test(ua) ? 's' : /webOS|Mobile|Tablet|Opera Mini|\bCrMo\/|Opera Mobi/i.test(ua) ? 1 : 0,
+        tablet = /Tablet|iPad/i.test(ua),
+        touch = 'ontouchstart' in document.documentElement;
+      var device = "";
+      if(browser) {
+        device = "PC";
+      }
+      if(mobile) {
+        device = "mobile";
+      }
+      if(tablet) {
+        device = "tablet";
+        // device = "PC";
+        // device = "mobile";
+      }
+      // console.log("device = " + device);
+      var re = new RegExp(device);
+
+      var head = document.getElementsByTagName("head")[0];
+      var body = document.getElementsByTagName("body")[0];
+
+      var braze = window.braze;
+
+      var cards = [];
+      var card_id_refreshed = [];
+      var banners = [];
+      var result = [];
+      var bannerDisplayed = false;
+      var bannerEmpty = false;
+      
+      
+      // Cookie関連
+      function restoreBanner() { 
+        var sb = {{squarebanner}};
+        if(sb){
+          return JSON.parse(sb);
+        } else {
+          return null;
+        }
+      }
+      
+      function storeBanner(data) { 
+        if(data) {
+          document.cookie = "squarebanner=" + encodeURIComponent(JSON.stringify(data)) + ";path=/;";
+        }
+      }
+      
+      
+      // Cookieに格納された「squarebanner」をデータレイヤー変数から取得
+      // JS変数「squarebanner」にパース
+      var sb = {{squarebanner}};
+      var squarebanner = restoreBanner(sb) || {};
+      console.log("Cookie squarebanner = ", squarebanner);
+
+      
+      // ContentCardsの更新時に実行。
+      // カードデータを取得して「priority」順にソート
+      braze.subscribeToContentCardsUpdates(function(updates){
+        console.log("subscribeToContentCardsUpdates updates = ", updates);
+        cards = updates.cards;
+        //- cards = braze.getCachedContentCards().cards;
+        
+        
+        console.log("card_id_refreshed", card_id_refreshed);
+        for(var i = 0; i < cards.length; i ++) {
+          var card = cards[i];
+          if(card.extras
+             && card.extras["id"]
+             && card.extras["type"] == "square-banner"
+             && (re.test(card.extras["target"]))
+             && !card_id_refreshed.includes(card.extras["id"])
+            ) {
+            var card_id = card.extras["id"];
+            console.log("card_id", card_id);
+            //- console.log(cards[i].extras["max"]);
+            //- console.log(cards[i].extras["priority"]);
+            //- console.log(cards[i].id);
+            card.extras["priority"] = parseInt(card.extras["priority"]);
+            banners.push(card);
+            card_id_refreshed.push(card_id);
+          }
+        }
+
+        result = banners.sort(function(a, b) {
+          return (a.extras["priority"] > b.extras["priority"]) ? 1 : -1;  //オブジェクトの降順ソート
+        });
+        console.log("Refreshed Card Data", result);
+      });
+
+      
+      //　スクロール量のチェック
+      var scroll50 = false;
+      
+      /* Javascript */
+      window.addEventListener('scroll', function() {
+        var scrollPercent = (window.scrollY / ( document.body.scrollHeight - window.innerHeight ) ) * 100;
+        var fb = document.getElementById("floating-banner");
+        if(scrollPercent >= 50) {
+          if(bannerDisplayed == false && bannerEmpty == false) {
+            // scroll50 = true;
+            console.log("scroll 50+, check available banner");
+            checkBanner();
+          }
+          if(fb) {
+            fb.className = "show";
+          }
+        } else {
+          if(fb) {
+            fb.className = "";
+          }
+        }
+      });
+      
+      /* jQuery
+      if($) {
+        $(window).scroll(function(e){
+          var scrollTop = $(window).scrollTop();
+          var docHeight = $(document).height();
+          var winHeight = $(window).height();
+          var scrollPercent = (scrollTop) / (docHeight - winHeight);
+          var scrollPercentRounded = Math.round(scrollPercent*100);
+
+            //- console.log(scrollPercentRounded);
+          if(scrollPercentRounded >= 50) {
+            if(scroll50 == false) {
+              scroll50 = true;
+              checkBanner();
+            }
+            $("#floating-banner").addClass("show");
+          } else {
+
+            $("#floating-banner").removeClass("show");
+          }
+        });
+      }
+      */
+
+      // バナーのステータスチェック
+      // dismiss されていない
+      // クッキーの「click」カウント < KVPの「click_max」
+      // クッキーの「count」カウント < KVPの「max」
+      function checkBanner() {
+        if(bannerDisplayed) {
+          return false;
+        }
+
+        // var ss = sessionStorage.getItem("banner")? JSON.parse(sessionStorage.getItem("banner")) : {};
+        var ss = squarebanner;
+        console.log("ss before = ", ss);
+        console.log("result = ", result);
+
+        for(var i = 0; i < result.length; i ++) {
+          var card = result[i];
+          var card_id = card.extras["id"];
+          var banner;
+          if(ss[card_id]) {
+            banner = ss[card_id];
+          } else {
+            banner = ss[card_id] = {};
+          };
+          //banner.card = card;
+          console.log("banner status:", banner);
+          if(!bannerDisplayed 
+             && !banner.dismissed 
+             && (!banner.click || banner.click < card.extras["click_max"]) 
+             && (!banner.count || banner.count < card.extras["max"]) 
+            ) {
+            // console.log("card.id:", card.id);
+            // console.log('card.extras["max"]:', card.extras["max"]);
+            // console.log('card.extras["priority"]:', card.extras["priority"]);
+            addBanner(card);
+            bannerDisplayed = true;
+
+            banner.count = banner.count? banner.count + 1 : 1;
+            
+            console.log("ss after = ", ss);
+            sessionStorage.setItem("banner", JSON.stringify(ss));
+            storeBanner(ss);
+          }
+        }
+        
+        // 表示するバナーがない
+        if(!bannerDisplayed) {
+          console.log("No Banner to be displayed");
+          bannerEmpty = true;
+        }
+      }
+
+      
+      // バナー要素作成・追加
+      function addBanner(card) {
+        window.currentCard = card;
+
+        var css = document.createElement("style");
+        if(device == "PC") {
+          css.innerText = '#floating-banner{width:200px;height:200px;position:fixed;bottom:60px;right:20px;border-radius:0;display:block;border-radius:0;box-sizing:border-box;opacity:0;transition:opacity 2s ease-out;pointer-events:none}#floating-banner.show{opacity:1;pointer-events:all}#floating-banner a{display:block;vertical-align:middle}#floating-banner .floating-banner-image{width:200px;height:200px}#floating-banner-close{position:absolute;z-index:99999;top:-15px;right:-15px;width:30px;height:30px}';
+        } 
+        if(device == "mobile") {
+          css.innerText = '#floating-banner{width:170px;height:170px;position:fixed;bottom:115px;left:20px;border-radius:0;display:block;border-radius:0;box-sizing:border-box;opacity:0;transition:opacity 2s ease-out;pointer-events:none}#floating-banner.show{opacity:1;pointer-events:all}#floating-banner a{display:block;vertical-align:middle}#floating-banner .floating-banner-image{width:170px;height:170px}#floating-banner-close{position:absolute;z-index:99999;top:-10px;right:-10px;width:20px;height:20px}';
+        }
+        if(device == "tablet") {
+          css.innerText = '#floating-banner{width:200px;height:200px;position:fixed;bottom:60px;right:20px;border-radius:0;display:block;border-radius:0;box-sizing:border-box;opacity:0;transition:opacity 2s ease-out;pointer-events:none}#floating-banner.show{opacity:1;pointer-events:all}#floating-banner a{display:block;vertical-align:middle}#floating-banner .floating-banner-image{width:200px;height:200px}#floating-banner-close{position:absolute;z-index:99999;top:-15px;right:-15px;width:30px;height:30px}';
+        } 
+        head.appendChild(css);
+
+        var a,b,c,d;
+        a = document.createElement("a");
+        a.href = card.url;
+        a.onclick = bannerClick;
+        a.id = card.id;
+        a.target = "_blank";
+        b = document.createElement("img");
+        b.src = card.imageUrl;
+        b.className = "floating-banner-image"
+        c = document.createElement("img");
+        c.src = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgdmlld0JveD0iMCAwIDYwIDYwIj4KICA8ZGVmcz4KICAgIDxzdHlsZT4KICAgICAgLmNscy0xIHsKICAgICAgICBmaWxsOiBncmF5OwogICAgICB9CgogICAgICAuY2xzLTIgewogICAgICAgIGZpbGw6IG5vbmU7CiAgICAgICAgc3Ryb2tlOiAjZmZmOwogICAgICAgIHN0cm9rZS1saW5lY2FwOiByb3VuZDsKICAgICAgICBzdHJva2Utd2lkdGg6IDZweDsKICAgICAgfQogICAgPC9zdHlsZT4KICA8L2RlZnM+CiAgPGcgaWQ9IuOCsOODq+ODvOODl18yNzAyIiBkYXRhLW5hbWU9IuOCsOODq+ODvOODlyAyNzAyIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtMjE4MiAtMTE5MCkiPgogICAgPGNpcmNsZSBpZD0i5qWV5YaG5b2iXzE5IiBkYXRhLW5hbWU9IualleWGhuW9oiAxOSIgY2xhc3M9ImNscy0xIiBjeD0iMzAiIGN5PSIzMCIgcj0iMzAiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDIxODIgMTE5MCkiLz4KICAgIDxnIGlkPSLjgrDjg6vjg7zjg5dfMjcwMyIgZGF0YS1uYW1lPSLjgrDjg6vjg7zjg5cgMjcwMyIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMjE5MC43ODcgMTIyMCkgcm90YXRlKC00NSkiPgogICAgICA8bGluZSBpZD0i57eaXzUiIGRhdGEtbmFtZT0i57eaIDUiIGNsYXNzPSJjbHMtMiIgeDI9IjMwIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwIDE1KSIvPgogICAgICA8bGluZSBpZD0i57eaXzYiIGRhdGEtbmFtZT0i57eaIDYiIGNsYXNzPSJjbHMtMiIgeDI9IjMwIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNSkgcm90YXRlKDkwKSIvPgogICAgPC9nPgogIDwvZz4KPC9zdmc+Cg==";
+        c.onclick = bannerClose;
+        c.id = "floating-banner-close";
+        d = document.createElement("div");
+        d.id = "floating-banner";
+        a.appendChild(b);
+        d.appendChild(a);
+        d.appendChild(a);
+        d.appendChild(c);
+        
+        body.appendChild(d);
+
+        var cards = [];
+        cards.push(card);
+        braze.logCardImpressions(cards, true);
+      }
+
+      // xボタンでバナー閉じる＝Dismiss
+      function bannerClose() {
+        // console.log("bannerClose");
+        braze.logCardDismissal(currentCard);
+
+        var ss = JSON.parse(sessionStorage.getItem("banner"));
+        ss[currentCard.extras["id"]].dismissed = true;
+        sessionStorage.setItem("banner", JSON.stringify(ss));
+        storeBanner(ss);
+
+        closeBanner();
+      }
+
+      // バナークリック
+      function bannerClick() {
+        // console.log("bannerClick", this.id, currentCard.id);
+        braze.logCardClick(currentCard, true);
+
+        var ss = JSON.parse(sessionStorage.getItem("banner"));
+        var sc = ss[currentCard.extras["id"]];
+        sc.click = sc.click? sc.click + 1 : 1 ;
+        sessionStorage.setItem("banner", JSON.stringify(ss));
+        storeBanner(ss);
+
+        closeBanner();
+      }
+
+      // バナー閉じる
+      function closeBanner() {
+        var b = document.getElementById("floating-banner");
+        body.removeChild(b);
+      }
+      
+      
+      // 時間差で取得
+      braze.requestImmediateDataFlush(function(b) {
+        console.log("bool",b);
+        setTimeout(function() {
+          braze.requestContentCardsRefresh();
+        }, 500);
+      });
+      /*
+      setTimeout(function() {
+        braze.requestContentCardsRefresh();
+      }, 500);
+      */
+    </script>
